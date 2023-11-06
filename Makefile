@@ -1,4 +1,7 @@
 # ssdsim linux support
+CFLAGS = \
+				-DDEBUG
+
 all:ssd 
 	
 clean:
@@ -6,15 +9,15 @@ clean:
 .PHONY: clean
 
 ssd: ssd.o avlTree.o flash.o initialize.o pagemap.o     
-	cc -g -o ssd ssd.o avlTree.o flash.o initialize.o pagemap.o
+	cc $(CFLAGS) -g -o ssd ssd.o avlTree.o flash.o initialize.o pagemap.o
+	rm *.o
 ssd.o: flash.h initialize.h pagemap.h
-	gcc -c -g ssd.c
+	gcc $(CFLAGS) -c -g ssd.c
 flash.o: pagemap.h
-	gcc -c -g flash.c
+	gcc $(CFLAGS) -c -g flash.c
 initialize.o: avlTree.h pagemap.h
-	gcc -c -g initialize.c
+	gcc $(CFLAGS) -c -g initialize.c
 pagemap.o: initialize.h
-	gcc -c -g pagemap.c
+	gcc $(CFLAGS) -c -g pagemap.c
 avlTree.o: 
-	gcc -c -g avlTree.c
-
+	gcc $(CFLAGS) -c -g avlTree.c

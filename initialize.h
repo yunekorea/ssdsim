@@ -363,10 +363,20 @@ struct request{
     int64_t response_time;
     double energy_consumption;         //记录该请求的能量消耗，单位为uJ
 
+    struct request_page *request_in_pages;
+    struct request_page *last_request_in_pages;
+    
     struct sub_request *subs;          //链接到属于该请求的所有子请求
     struct request *next_node;         //指向下一个请求结构体
 };
 
+struct request_page{
+    unsigned int lpn;
+    unsigned int offset;
+    unsigned int size;
+    
+  struct request_page *next_page;
+};
 
 struct sub_request{
     unsigned int lpn;                  //这里表示该子请求的逻辑页号

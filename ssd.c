@@ -145,8 +145,12 @@ int get_requests(struct ssd_info *ssd)
 {  
     char buffer[200];
     unsigned int lsn=0;
+    unsigned int lpn=0;
+    unsigned int offset=0, pagesleft=0;
     int device,  size, ope,large_lsn, i = 0,j=0;
     struct request *request1;
+    struct request_page *request1_page, *last_request_page, *new_request_page;
+    int large_lpn, size_per_page;
     int flag = 1;
     long filepoint; 
     int64_t time_t = 0;
@@ -161,12 +165,15 @@ int get_requests(struct ssd_info *ssd)
 
     filepoint = ftell(ssd->tracefile);	
     fgets(buffer, 200, ssd->tracefile); 
-    sscanf(buffer,"%lld %d %d %d %d",&time_t,&device,&lsn,&size,&ope);
-
+    //sscanf(buffer,"%lld %d %d %d %d",&time_t,&device,&lsn,&size,&ope);
+    sscanf(buffer, "%lld %d %d %d %d %d %d", 
+           &time_t, &device, &lpn, &offset, &size_per_page, &pagesleft, &ope);
+    lsn = lpn * ssd->parameter->subpage_page;
     if ((device<0)&&(lsn<0)&&(size<0)&&(ope<0))
     {
         return 100;
     }
+    
     if (lsn<ssd->min_lsn) 
         ssd->min_lsn=lsn;
     if (lsn>ssd->max_lsn)
@@ -177,8 +184,47 @@ int get_requests(struct ssd_info *ssd)
      *large_lsn: channel下面有多少个subpage，即多少个sector。overprovide系数：SSD中并不是所有的空间都可以给用户使用，
      *比如32G的SSD可能有10%的空间保留下来留作他用，所以乘以1-provide
      ***********************************************************************************************************/
-    large_lsn=(int)((ssd->parameter->subpage_page*ssd->parameter->page_block*ssd->parameter->block_plane*ssd->parameter->plane_die*ssd->parameter->die_chip*ssd->parameter->chip_num)*(1-ssd->parameter->overprovide));
+    /* large_lsn
+     * = when lsn is higher than the highest possible lsn of the ssd,
+     *   action below will make that lsn lower than the highest lsn.
+     *   */
+    large_lsn=(int)((ssd->parameter->subpage_page
+                    *ssd->parameter->page_block
+                    *ssd->parameter->block_plane
+                    *ssd->parameter->plane_die
+                    *ssd->parameter->die_chip
+                    *ssd->parameter->chip_num)
+                    *(1-ssd->parameter->overprovide));
     lsn = lsn%large_lsn;
+
+    large_lpn=(int)((ssd->parameter->page_block
+                    *ssd->parameter->block_plane
+                    *ssd->parameter->plane_die
+                    *ssd->parameter->die_chip
+                    *ssd->parameter->chip_num)
+                    *(1-ssd->parameter->overprovide));
+    lpn = lpn%large_lpn;
+    size = size_per_page;
+    request1_page = (struct request_page*)malloc(sizeof(struct request_page));
+    request1_page->lpn = lpn;
+    request1_page->offset = offset;
+    request1_page->size = size_per_page;
+    request1_page->next_page = NULL;
+    last_request_page = request1_page;
+    while(pagesleft > 1) {
+      fgets(buffer, 200, ssd->tracefile);
+      sscanf(buffer, "%lld %d %d %d %d %d %d", 
+                    &time_t, &device, &lpn, &offset, &size_per_page, &pagesleft, &ope);
+      lpn%large_lpn;
+      new_request_page = (struct request_page*)malloc(sizeof(struct request_page));
+      last_request_page->next_page = new_request_page;
+      size += size_per_page;
+      new_request_page->lpn = lpn;
+      new_request_page->offset = offset;
+      new_request_page->size = size_per_page;
+      new_request_page->next_page = NULL;
+    }
+    
 
     nearest_event_time=find_nearest_event(ssd);
     if (nearest_event_time==MAX_INT64)
@@ -250,6 +296,8 @@ int get_requests(struct ssd_info *ssd)
     request1->subs = NULL;
     request1->need_distr_flag = NULL;
     request1->complete_lsn_count=0;         //record the count of lsn served by buffer
+    request1->request_in_pages = request1_page;
+    request1->last_request_in_pages = last_request_page;
     filepoint = ftell(ssd->tracefile);		// set the file point
 
     if(ssd->request_queue == NULL)          //The queue is empty
@@ -276,8 +324,13 @@ int get_requests(struct ssd_info *ssd)
 
 
     filepoint = ftell(ssd->tracefile);	
-    fgets(buffer, 200, ssd->tracefile);    //寻找下一条请求的到达时间
-    sscanf(buffer,"%lld %d %d %d %d",&time_t,&device,&lsn,&size,&ope);
+    if (fgets(buffer, 200, ssd->tracefile) == NULL) {//寻找下一条请求的到达时间
+      printf("\n\nEnd_Of_File\n\n");
+      return 100;
+    }
+    sscanf(buffer, "%lld %d %d %d %d %d %d", 
+                  &time_t, &device, &lpn, &offset, &size_per_page, &pagesleft, &ope);
+    //sscanf(buffer,"%lld %d %d %d %d",&time_t,&device,&lsn,&size,&ope);
     ssd->next_request_time=time_t;
     fseek(ssd->tracefile,filepoint,0);
 
@@ -335,6 +388,7 @@ struct ssd_info *buffer_management(struct ssd_info *ssd)
             {             	
                 lsn_flag=full_page;
                 mask=1 << (lsn%ssd->parameter->subpage_page);
+                
                 if(mask>31)
                 {
                     printf("the subpage number is larger than 32!add some cases");
