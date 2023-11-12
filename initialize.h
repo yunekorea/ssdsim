@@ -283,6 +283,7 @@ struct blk_info{
     unsigned int free_page_num;        //记录该块中的free页个数，同上
     unsigned int invalid_page_num;     //记录该块中失效页的个数，同上
     int last_write_page;               //记录最近一次写操作执行的页数,-1表示该块没有一页被写过
+    int hotness;
     struct page_info *page_head;       //记录每一子页的状态
 };
 
@@ -324,6 +325,7 @@ typedef struct buffer_group{
     unsigned int stored;                //indicate the sector is stored in buffer or not. 1 indicates the sector is stored and 0 indicate the sector isn't stored.EX.  00110011 indicates the first, second, fifth, sixth sector is stored in buffer.
     unsigned int dirty_clean;           //it is flag of the data has been modified, one bit indicates one subpage. EX. 0001 indicates the first subpage is dirty
     int flag;			                //indicates if this node is the last 20% of the LRU list	
+    int hotness;
 }buf_node;
 
 
@@ -362,7 +364,7 @@ struct request{
     int64_t begin_time;
     int64_t response_time;
     double energy_consumption;         //记录该请求的能量消耗，单位为uJ
-
+  
     struct request_page *request_in_pages;
     struct request_page *last_request_in_pages;
     
@@ -374,6 +376,7 @@ struct request_page{
     unsigned int lpn;
     unsigned int offset;
     unsigned int size;
+    int hotness;
     
   struct request_page *next_page;
 };
@@ -393,6 +396,8 @@ struct sub_request{
 
     int64_t begin_time;               //子请求开始时间
     int64_t complete_time;            //记录该子请求的处理时间,既真正写入或者读出数据的时间
+
+    int hotness;
 
     struct local *location;           //在静态分配和混合分配方式中，已知lpn就知道该lpn该分配到那个channel，chip，die，plane，这个结构体用来保存计算得到的地址
     struct sub_request *next_subs;    //指向属于同一个request的子请求

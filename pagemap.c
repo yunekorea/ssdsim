@@ -391,7 +391,7 @@ unsigned int get_ppn_for_pre_process(struct ssd_info *ssd,unsigned int lsn)
      *根据上述分配方法找到channel，chip，die，plane后，再在这个里面找到active_block
      *接着获得ppn
      ******************************************************************************/
-    if(find_active_block(ssd,channel,chip,die,plane)==FAILURE)
+    if(find_active_block(ssd,channel,chip,die,plane,-1)==FAILURE)
     {
         printf("the read operation is expand the capacity of SSD\n");	
         return 0;
@@ -421,8 +421,8 @@ struct ssd_info *get_ppn(struct ssd_info *ssd,unsigned int channel,unsigned int 
     struct local *location;
     struct direct_erase *direct_erase_node,*new_direct_erase;
     struct gc_operation *gc_node;
-
     unsigned int i=0,j=0,k=0,l=0,m=0,n=0;
+    int sub_hotness;
 
 #ifdef DEBUG
     printf("enter get_ppn,channel:%d, chip:%d, die:%d, plane:%d\n",channel,chip,die,plane);
@@ -430,12 +430,13 @@ struct ssd_info *get_ppn(struct ssd_info *ssd,unsigned int channel,unsigned int 
 
     full_page=~(0xffffffff<<(ssd->parameter->subpage_page));
     lpn=sub->lpn;
-
+    
     /*************************************************************************************
      *利用函数find_active_block在channel，chip，die，plane找到活跃block
      *并且修改这个channel，chip，die，plane，active_block下的last_write_page和free_page_num
      **************************************************************************************/
-    if(find_active_block(ssd,channel,chip,die,plane)==FAILURE)                      
+    sub_hotness = sub->hotness;
+    if(find_active_block(ssd,channel,chip,die,plane,sub_hotness)==FAILURE)                      
     {
         printf("ERROR :there is no free page in channel:%d, chip:%d, die:%d, plane:%d\n",channel,chip,die,plane);	
         return ssd;
@@ -523,6 +524,8 @@ struct ssd_info *get_ppn(struct ssd_info *ssd,unsigned int channel,unsigned int 
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].page_head[page].valid_state=sub->state;
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].page_head[page].free_state=((~(sub->state))&full_page);
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].page_head[page].written_count++;
+    if(ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].hotness == -1)
+      ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].hotness = sub_hotness;
     ssd->write_flash_count++;
 
     if (ssd->parameter->active_write==0)                                            /*如果没有主动策略，只采用gc_hard_threshold，并且无法中断GC过程*/
@@ -553,7 +556,7 @@ struct ssd_info *get_ppn(struct ssd_info *ssd,unsigned int channel,unsigned int 
  *这个函数功能是为gc操作寻找新的ppn，因为在gc操作中需要找到新的物理块存放原来物理块上的数据
  *在gc中寻找新物理块的函数，不会引起循环的gc操作
  ******************************************************************************************/
-unsigned int get_ppn_for_gc(struct ssd_info *ssd,unsigned int channel,unsigned int chip,unsigned int die,unsigned int plane)     
+unsigned int get_ppn_for_gc(struct ssd_info *ssd,unsigned int channel,unsigned int chip,unsigned int die,unsigned int plane, int hotness)     
 {
     unsigned int ppn;
     unsigned int active_block,block,page;
@@ -562,7 +565,7 @@ unsigned int get_ppn_for_gc(struct ssd_info *ssd,unsigned int channel,unsigned i
     printf("enter get_ppn_for_gc,channel:%d, chip:%d, die:%d, plane:%d\n",channel,chip,die,plane);
 #endif
 
-    if(find_active_block(ssd,channel,chip,die,plane)!=SUCCESS)
+    if(find_active_block(ssd,channel,chip,die,plane, hotness)!=SUCCESS)
     {
         printf("\n\n Error int get_ppn_for_gc().\n");
         return 0xffffffff;
@@ -589,6 +592,8 @@ unsigned int get_ppn_for_gc(struct ssd_info *ssd,unsigned int channel,unsigned i
     ssd->channel_head[channel].chip_head[chip].program_count++;
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].free_page--;
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].page_head[page].written_count++;
+    if(ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].hotness == -1)
+      ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].hotness = hotness;
     ssd->write_flash_count++;
 
     return ppn;
@@ -609,6 +614,7 @@ Status erase_operation(struct ssd_info * ssd,unsigned int channel ,unsigned int 
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[block].invalid_page_num=0;
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[block].last_write_page=-1;
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[block].erase_count++;
+    ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[block].hotness = -1;
     for (i=0;i<ssd->parameter->page_block;i++)
     {
         ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[block].page_head[i].free_state=PG_SUB;
@@ -903,12 +909,13 @@ Status move_page(struct ssd_info * ssd, struct local *location, unsigned int * t
     struct local *new_location=NULL;
     unsigned int free_state=0,valid_state=0;
     unsigned int lpn=0,old_ppn=0,ppn=0;
-
+    int page_hotness;
     lpn=ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page].lpn;
     valid_state=ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page].valid_state;
     free_state=ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page].free_state;
+    page_hotness = ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].hotness;
     old_ppn=find_ppn(ssd,location->channel,location->chip,location->die,location->plane,location->block,location->page);      /*记录这个有效移动页的ppn，对比map或者额外映射关系中的ppn，进行删除和添加操作*/
-    ppn=get_ppn_for_gc(ssd,location->channel,location->chip,location->die,location->plane);                /*找出来的ppn一定是在发生gc操作的plane中,才能使用copyback操作，为gc操作获取ppn*/
+    ppn=get_ppn_for_gc(ssd,location->channel,location->chip,location->die,location->plane,page_hotness);                /*找出来的ppn一定是在发生gc操作的plane中,才能使用copyback操作，为gc操作获取ppn*/
 
     new_location=find_location(ssd,ppn);                                                                   /*根据新获得的ppn获取new_location*/
 
@@ -928,7 +935,7 @@ Status move_page(struct ssd_info * ssd, struct local *location, unsigned int * t
                 free(new_location);
                 new_location=NULL;
 
-                ppn=get_ppn_for_gc(ssd,location->channel,location->chip,location->die,location->plane);    /*找出来的ppn一定是在发生gc操作的plane中，并且满足奇偶地址限制,才能使用copyback操作*/
+                ppn=get_ppn_for_gc(ssd,location->channel,location->chip,location->die,location->plane, page_hotness);    /*找出来的ppn一定是在发生gc操作的plane中，并且满足奇偶地址限制,才能使用copyback操作*/
                 ssd->program_count--;
                 ssd->write_flash_count--;
                 ssd->waste_page_count++;
@@ -941,6 +948,9 @@ Status move_page(struct ssd_info * ssd, struct local *location, unsigned int * t
             ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].page_head[new_location->page].free_state=free_state;
             ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].page_head[new_location->page].lpn=lpn;
             ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].page_head[new_location->page].valid_state=valid_state;
+            if(ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].hotness == -1)
+              ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].hotness = page_hotness;
+
         } 
         else
         {
@@ -963,6 +973,8 @@ Status move_page(struct ssd_info * ssd, struct local *location, unsigned int * t
     ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].page_head[new_location->page].free_state=free_state;
     ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].page_head[new_location->page].lpn=lpn;
     ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].page_head[new_location->page].valid_state=valid_state;
+    if(ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].hotness == -1)
+      ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].hotness = page_hotness;
 
 
     ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page].free_state=0;
@@ -992,7 +1004,7 @@ int uninterrupt_gc(struct ssd_info *ssd,unsigned int channel,unsigned int chip,u
     struct local *  location=NULL;
     unsigned int total_invalid_page_num=0;
 
-    if(find_active_block(ssd,channel,chip,die,plane)!=SUCCESS)                                           /*获取活跃块*/
+    if(find_active_block(ssd,channel,chip,die,plane,-1)!=SUCCESS)                                           /*获取活跃块*/
     {
         printf("\n\n Error in uninterrupt_gc().\n");
         return ERROR;

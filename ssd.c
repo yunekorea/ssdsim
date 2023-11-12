@@ -154,7 +154,8 @@ int get_requests(struct ssd_info *ssd)
     int flag = 1;
     long filepoint; 
     int64_t time_t = 0;
-    int64_t nearest_event_time;    
+    int64_t nearest_event_time;
+    int hotness;
 
 #ifdef DEBUG
     printf("enter get_requests,  current time:%lld\n",ssd->current_time);
@@ -166,8 +167,9 @@ int get_requests(struct ssd_info *ssd)
     filepoint = ftell(ssd->tracefile);	
     fgets(buffer, 200, ssd->tracefile); 
     //sscanf(buffer,"%lld %d %d %d %d",&time_t,&device,&lsn,&size,&ope);
-    sscanf(buffer, "%lld %d %d %d %d %d %d", 
-           &time_t, &device, &lpn, &offset, &size_per_page, &pagesleft, &ope);
+    sscanf(buffer, "%lld %d %d %d %d %d %d %d", 
+           &time_t, &device, &lpn, &offset, &size_per_page, &pagesleft, &ope, &hotness);
+    printf("HOTNESS : %d\n", hotness);
     lsn = lpn * ssd->parameter->subpage_page + offset;
     if ((device<0)&&(lpn<0)&&(size<0)&&(ope<0))
     {
@@ -209,12 +211,13 @@ int get_requests(struct ssd_info *ssd)
     request1_page->lpn = lpn;
     request1_page->offset = offset;
     request1_page->size = size_per_page;
+    request1_page->hotness = hotness;
     request1_page->next_page = NULL;
     last_request_page = request1_page;
     while(pagesleft > 1) {
       fgets(buffer, 200, ssd->tracefile);
-      sscanf(buffer, "%lld %d %d %d %d %d %d", 
-                    &time_t, &device, &lpn, &offset, &size_per_page, &pagesleft, &ope);
+      sscanf(buffer, "%lld %d %d %d %d %d %d %d", 
+                    &time_t, &device, &lpn, &offset, &size_per_page, &pagesleft, &ope, &hotness);
       lpn = lpn%large_lpn;
       new_request_page = (struct request_page*)malloc(sizeof(struct request_page));
       last_request_page->next_page = new_request_page;
@@ -222,11 +225,11 @@ int get_requests(struct ssd_info *ssd)
       new_request_page->lpn = lpn;
       new_request_page->offset = offset;
       new_request_page->size = size_per_page;
+      new_request_page->hotness = hotness;
       new_request_page->next_page = NULL;
       last_request_page = new_request_page;
     }
     
-
     nearest_event_time=find_nearest_event(ssd);
     if (nearest_event_time==MAX_INT64)
     {
@@ -329,8 +332,8 @@ int get_requests(struct ssd_info *ssd)
       printf("\n\nEnd_Of_File\n\n");
       return 100;
     }
-    sscanf(buffer, "%lld %d %d %d %d %d %d", 
-                  &time_t, &device, &lpn, &offset, &size_per_page, &pagesleft, &ope);
+    sscanf(buffer, "%lld %d %d %d %d %d %d %d", 
+                  &time_t, &device, &lpn, &offset, &size_per_page, &pagesleft, &ope, &hotness);
     //sscanf(buffer,"%lld %d %d %d %d",&time_t,&device,&lsn,&size,&ope);
     ssd->next_request_time=time_t;
     fseek(ssd->tracefile,filepoint,0);
@@ -357,7 +360,7 @@ struct ssd_info *buffer_management(struct ssd_info *ssd)
     struct buffer_group *buffer_node,key;
     unsigned int mask=0,offset1=0,offset2=0;
     struct request_page *new_request_page;
-    unsigned int page_size = 0, page_offset = 0;
+    unsigned int page_size = 0, page_offset = 0, page_hotness = 0;
 
 #ifdef DEBUG
     printf("enter buffer_management,  current time:%lld\n",ssd->current_time);
@@ -454,11 +457,12 @@ struct ssd_info *buffer_management(struct ssd_info *ssd)
           lpn = new_request_page->lpn;
           page_offset = new_request_page->offset;
           page_size = new_request_page->size;
+          page_hotness = new_request_page->hotness;
           //page_offset = ssd->parameter->subpage_page - page_offset;
           //state = state & ~(0xffffffff << page_offset) & (0xffffffff << page_size);
           state = state & (0xffffffff << (page_offset));
           state = state & ~(0xffffffff << (page_offset+page_size));
-          ssd=insert2buffer(ssd, lpn, state, NULL, new_request);
+          ssd=insert2buffer(ssd, lpn, state, NULL, new_request, page_hotness);
           new_request_page = new_request_page->next_page;
         }
         
@@ -536,7 +540,6 @@ struct ssd_info *distribute(struct ssd_info *ssd)
     struct request *req;
     struct sub_request *sub;
     int* complt;
-
 #ifdef DEBUG
     printf("enter distribute,  current time:%lld\n",ssd->current_time);
 #endif
@@ -586,7 +589,7 @@ struct ssd_info *distribute(struct ssd_info *ssd)
                             }
                             else
                             {
-                                sub=creat_sub_request(ssd,lpn,sub_size,0,req,req->operation);
+                              sub=creat_sub_request(ssd,lpn,sub_size,0,req,req->operation, -1);
                             }	
                         }
                     }
@@ -1160,7 +1163,8 @@ struct ssd_info *no_buffer_distribute(struct ssd_info *ssd)
     struct sub_request *sub=NULL,*sub_r=NULL,*update=NULL;
     struct local *loc=NULL;
     struct channel_info *p_ch=NULL;
-
+    struct request_page *new_request_page;
+    unsigned int page_size, page_offset, page_hotness;
 
     unsigned int mask=0; 
     unsigned int offset1=0, offset2=0;
@@ -1180,13 +1184,29 @@ struct ssd_info *no_buffer_distribute(struct ssd_info *ssd)
         {
             sub_state=(ssd->dram->map->map_entry[lpn].state&0x7fffffff);
             sub_size=size(sub_state);
-            sub=creat_sub_request(ssd,lpn,sub_size,sub_state,req,req->operation);
+            sub=creat_sub_request(ssd,lpn,sub_size,sub_state,req,req->operation, -1);
             lpn++;
         }
     }
     else if(req->operation==WRITE)
     {
-        while(lpn<=last_lpn)     	
+      new_request_page = req->request_in_pages;
+        while(new_request_page != NULL)
+        {
+          mask = ~(0xffffffff<<(ssd->parameter->subpage_page));
+          state = mask;
+          lpn = new_request_page->lpn;
+          page_offset = new_request_page->offset;
+          page_size = new_request_page->size;
+          page_hotness = new_request_page->hotness;
+          //page_offset = ssd->parameter->subpage_page - page_offset;
+          //state = state & ~(0xffffffff << page_offset) & (0xffffffff << page_size);
+          state = state & (0xffffffff << (page_offset));
+          state = state & ~(0xffffffff << (page_offset+page_size));
+          sub = creat_sub_request(ssd, lpn, page_size, state, req, req->operation, page_hotness);
+          new_request_page = new_request_page->next_page;
+        } 
+        /*while(lpn<=last_lpn)     	
         {	
             mask=~(0xffffffff<<(ssd->parameter->subpage_page));
             state=mask;
@@ -1204,7 +1224,7 @@ struct ssd_info *no_buffer_distribute(struct ssd_info *ssd)
 
             sub=creat_sub_request(ssd,lpn,sub_size,state,req,req->operation);
             lpn++;
-        }
+        }*/
     }
 
     return ssd;

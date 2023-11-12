@@ -279,7 +279,7 @@ Status allocate_location(struct ssd_info * ssd ,struct sub_request *sub_req)
 /*******************************************************************************
  *insert2buffer这个函数是专门为写请求分配子请求服务的在buffer_management中被调用。
  ********************************************************************************/
-struct ssd_info * insert2buffer(struct ssd_info *ssd,unsigned int lpn,int state,struct sub_request *sub,struct request *req)      
+struct ssd_info * insert2buffer(struct ssd_info *ssd,unsigned int lpn,int state,struct sub_request *sub,struct request *req, int hotness)      
 {
     int write_back_count,flag=0;                                                             /*flag表示为写入新数据腾空间是否完成，0表示需要进一步腾，1表示已经腾空*/
     unsigned int i,lsn,hit_flag,add_flag,sector_count,active_region_flag=0,free_sector=0;
@@ -287,7 +287,8 @@ struct ssd_info * insert2buffer(struct ssd_info *ssd,unsigned int lpn,int state,
     struct sub_request *sub_req=NULL,*update=NULL;
 
 
-    unsigned int sub_req_state=0, sub_req_size=0,sub_req_lpn=0;
+    unsigned int sub_req_state=0, sub_req_size=0, sub_req_lpn=0;
+    int sub_req_hotness = 0;
 
 #ifdef DEBUG
     printf("enter insert2buffer,  current time:%lld, lpn:%d, state:%d,\n",ssd->current_time,lpn,state);
@@ -304,6 +305,7 @@ struct ssd_info * insert2buffer(struct ssd_info *ssd,unsigned int lpn,int state,
      *如果free_sector>=sector_count，即有多余的空间够lpn子请求写，不需要产生写回请求
      *否则，没有多余的空间供lpn子请求写，这时需要释放一部分空间，产生写回请求。就要creat_sub_request()
      *************************************************************************************************/
+    //if there is no existing buffer node that matches
     if(buffer_node==NULL)
     {
         free_sector=ssd->dram->buffer->max_buffer_sector-ssd->dram->buffer->buffer_sector_count;   
@@ -321,7 +323,8 @@ struct ssd_info * insert2buffer(struct ssd_info *ssd,unsigned int lpn,int state,
                 sub_req_state=ssd->dram->buffer->buffer_tail->stored; 
                 sub_req_size=size(ssd->dram->buffer->buffer_tail->stored);
                 sub_req_lpn=ssd->dram->buffer->buffer_tail->group;
-                sub_req=creat_sub_request(ssd,sub_req_lpn,sub_req_size,sub_req_state,req,WRITE);
+                sub_req_hotness=ssd->dram->buffer->buffer_tail->hotness;
+                sub_req=creat_sub_request(ssd,sub_req_lpn,sub_req_size,sub_req_state,req,WRITE,sub_req_hotness);
 
                 /**********************************************************************************
                  *req不为空，表示这个insert2buffer函数是在buffer_management中调用，传递了request进来
@@ -389,6 +392,7 @@ struct ssd_info * insert2buffer(struct ssd_info *ssd,unsigned int lpn,int state,
      *算然命中了，但是命中的只是lpn，有可能新来的写请求，只是需要写lpn这一page的某几个sub_page
      *这时有需要进一步的判断
      *****************************************************************************************/
+    //if there is a matching buffer node
     else
     {
         for(i=0;i<ssd->parameter->subpage_page;i++)
@@ -463,7 +467,8 @@ struct ssd_info * insert2buffer(struct ssd_info *ssd,unsigned int lpn,int state,
                         sub_req_state=ssd->dram->buffer->buffer_tail->stored; 
                         sub_req_size=size(ssd->dram->buffer->buffer_tail->stored);
                         sub_req_lpn=ssd->dram->buffer->buffer_tail->group;
-                        sub_req=creat_sub_request(ssd,sub_req_lpn,sub_req_size,sub_req_state,req,WRITE);
+                        sub_req_hotness = ssd->dram->buffer->buffer_tail->hotness;
+                        sub_req=creat_sub_request(ssd,sub_req_lpn,sub_req_size,sub_req_state,req,WRITE, hotness);
 
                         if(req!=NULL)           
                         {
@@ -532,20 +537,34 @@ struct ssd_info * insert2buffer(struct ssd_info *ssd,unsigned int lpn,int state,
 /**************************************************************************************
  *函数的功能是寻找活跃快，应为每个plane中都只有一个活跃块，只有这个活跃块中才能进行操作
  ***************************************************************************************/
-Status  find_active_block(struct ssd_info *ssd,unsigned int channel,unsigned int chip,unsigned int die,unsigned int plane)
+Status  find_active_block(struct ssd_info *ssd,unsigned int channel,unsigned int chip,unsigned int die,unsigned int plane, int hotness)
 {
     unsigned int active_block;
     unsigned int free_page_num=0;
     unsigned int count=0;
+    int block_hotness = 0;
 
     active_block=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].active_block;
     free_page_num=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].free_page_num;
+    block_hotness = ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].hotness;
     //last_write_page=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].free_page_num;
-    while((free_page_num==0)&&(count<ssd->parameter->block_plane))
-    {
-        active_block=(active_block+1)%ssd->parameter->block_plane;	
-        free_page_num=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].free_page_num;
-        count++;
+    if(hotness == -1){
+      while((free_page_num==0)&&(count<ssd->parameter->block_plane))
+      {
+          active_block=(active_block+1)%ssd->parameter->block_plane;
+          block_hotness = ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].hotness;
+          free_page_num=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].free_page_num;
+          count++;
+      }
+    }
+    else {
+      while(( (free_page_num==0) || ((block_hotness!=hotness) && (block_hotness!=-1)) ) && (count<ssd->parameter->block_plane))
+      {
+          active_block=(active_block+1)%ssd->parameter->block_plane;
+          block_hotness = ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].hotness;
+          free_page_num=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].free_page_num;
+          count++;
+      }
     }
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].active_block=active_block;
     if(count<ssd->parameter->block_plane)
@@ -576,6 +595,7 @@ Status write_page(struct ssd_info *ssd,unsigned int channel,unsigned int chip,un
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].free_page_num--; 
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].free_page--;
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].page_head[last_write_page].written_count++;
+    
     ssd->write_flash_count++;    
     *ppn=find_ppn(ssd,channel,chip,die,plane,active_block,last_write_page);
 
@@ -585,7 +605,7 @@ Status write_page(struct ssd_info *ssd,unsigned int channel,unsigned int chip,un
 /**********************************************
  *这个函数的功能是根据lpn，size，state创建子请求
  **********************************************/
-struct sub_request * creat_sub_request(struct ssd_info * ssd,unsigned int lpn,int size,unsigned int state,struct request * req,unsigned int operation)
+struct sub_request * creat_sub_request(struct ssd_info * ssd,unsigned int lpn,int size,unsigned int state,struct request * req,unsigned int operation, int hotness)
 {
     struct sub_request* sub=NULL,* sub_r=NULL;
     struct channel_info * p_ch=NULL;
@@ -626,6 +646,7 @@ struct sub_request * creat_sub_request(struct ssd_info * ssd,unsigned int lpn,in
         sub->next_state_predict_time=MAX_INT64;
         sub->lpn = lpn;
         sub->size=size;                                                               /*需要计算出该子请求的请求大小*/
+        sub->hotness = -1;
 
         p_ch = &ssd->channel_head[loc->channel];	
         sub->ppn = ssd->dram->map->map_entry[lpn].pn;
@@ -681,6 +702,7 @@ struct sub_request * creat_sub_request(struct ssd_info * ssd,unsigned int lpn,in
         sub->size=size;
         sub->state=state;
         sub->begin_time=ssd->current_time;
+        sub->hotness=hotness;
 
         if (allocate_location(ssd ,sub)==ERROR)
         {
@@ -2360,6 +2382,7 @@ Status make_level_page(struct ssd_info * ssd, struct sub_request * sub0,struct s
     unsigned int channel=0,chip=0,die=0,plane0=0,plane1=0,block0=0,block1=0,page0=0,page1=0;
     unsigned int active_block0=0,active_block1=0;
     unsigned int old_plane_token=0;
+    int hotness0, hotness1;
 
     if((sub0==NULL)||(sub1==NULL)||(sub0->location==NULL))
     {
@@ -2371,6 +2394,8 @@ Status make_level_page(struct ssd_info * ssd, struct sub_request * sub0,struct s
     plane0=sub0->location->plane;
     block0=sub0->location->block;
     page0=sub0->location->page;
+    hotness0=sub0->hotness;
+    hotness1=sub1->hotness;
     old_plane_token=ssd->channel_head[channel].chip_head[chip].die_head[die].token;
 
     /***********************************************************************************************
@@ -2386,7 +2411,7 @@ Status make_level_page(struct ssd_info * ssd, struct sub_request * sub0,struct s
             plane1=ssd->channel_head[channel].chip_head[chip].die_head[die].token;
             if(ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane1].add_reg_ppn==-1)
             {
-                find_active_block(ssd,channel,chip,die,plane1);                               /*在plane1中找到活跃块*/
+                find_active_block(ssd,channel,chip,die,plane1,hotness0);                               /*在plane1中找到活跃块*/
                 block1=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane1].active_block;
 
                 /*********************************************************************************************
@@ -2436,7 +2461,7 @@ Status make_level_page(struct ssd_info * ssd, struct sub_request * sub0,struct s
         plane1=sub1->location->plane;
         if(ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane1].add_reg_ppn==-1)
         {
-            find_active_block(ssd,channel,chip,die,plane1);
+            find_active_block(ssd,channel,chip,die,plane1,hotness1);
             block1=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane1].active_block;
             if(block1==block0)
             {
@@ -2491,6 +2516,7 @@ Status find_level_page(struct ssd_info *ssd,unsigned int channel,unsigned int ch
 {
     unsigned int i,planeA,planeB,active_blockA,active_blockB,pageA,pageB,aim_page,old_plane;
     struct gc_operation *gc_node;
+    int hotnessA, hotnessB;
 
     old_plane=ssd->channel_head[channel].chip_head[chip].die_head[die].token;
 
@@ -2519,8 +2545,10 @@ Status find_level_page(struct ssd_info *ssd,unsigned int channel,unsigned int ch
         planeA=subA->location->plane;
         planeB=subB->location->plane;
     }
-    find_active_block(ssd,channel,chip,die,planeA);                                          /*寻找active_block*/
-    find_active_block(ssd,channel,chip,die,planeB);
+    hotnessA=subA->hotness;
+    hotnessB=subB->hotness;
+    find_active_block(ssd,channel,chip,die,planeA,hotnessA);                                          /*寻找active_block*/
+    find_active_block(ssd,channel,chip,die,planeB,hotnessB);
     active_blockA=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[planeA].active_block;
     active_blockB=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[planeB].active_block;
 

@@ -220,6 +220,8 @@ struct blk_info * initialize_block(struct blk_info * p_block,struct parameter_va
     p_block->free_page_num = parameter->page_block;	// all pages are free
     p_block->last_write_page = -1;	// no page has been programmed
 
+    p_block->hotness = -1;
+
     p_block->page_head = (struct page_info *)malloc(parameter->page_block * sizeof(struct page_info));
     alloc_assert(p_block->page_head,"p_block->page_head");
     memset(p_block->page_head,0,parameter->page_block * sizeof(struct page_info));
