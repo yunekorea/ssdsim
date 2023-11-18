@@ -542,7 +542,7 @@ Status  find_active_block(struct ssd_info *ssd,unsigned int channel,unsigned int
     unsigned int active_block;
     unsigned int free_page_num=0;
     unsigned int count=0;
-    int block_hotness = 0;
+    int block_hotness = -1;
 
     active_block=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].active_block;
     free_page_num=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].free_page_num;
@@ -558,12 +558,21 @@ Status  find_active_block(struct ssd_info *ssd,unsigned int channel,unsigned int
       }
     }
     else {
-      while(( (free_page_num==0) || ((block_hotness!=hotness) && (block_hotness!=-1)) ) && (count<ssd->parameter->block_plane))
+      while(( (free_page_num==0) || (block_hotness!=hotness) ) && (count<ssd->parameter->block_plane))
       {
           active_block=(active_block+1)%ssd->parameter->block_plane;
           block_hotness = ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].hotness;
           free_page_num=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].free_page_num;
           count++;
+      }
+      if(count == ssd->parameter->block_plane) {
+        count = 0;
+        block_hotness = 0;
+        while(( (free_page_num==0) || (block_hotness!=-1) ) && (count<ssd->parameter->block_plane)) {active_block=(active_block+1)%ssd->parameter->block_plane;
+          block_hotness = ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].hotness;
+          free_page_num=ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].free_page_num;
+          count++;
+        }
       }
     }
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].active_block=active_block;
@@ -2761,7 +2770,8 @@ Status find_level_page(struct ssd_info *ssd,unsigned int channel,unsigned int ch
         }
     }
 
-    if (ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[planeA].free_page<(ssd->parameter->page_block*ssd->parameter->block_plane*ssd->parameter->gc_hard_threshold))
+    if ((ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[planeA].free_page<(ssd->parameter->page_block*ssd->parameter->block_plane*ssd->parameter->gc_hard_threshold))
+          || (ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[planeA].unlabeled_block < 1))
     {
         gc_node=(struct gc_operation *)malloc(sizeof(struct gc_operation));
         alloc_assert(gc_node,"gc_node");
@@ -2779,7 +2789,8 @@ Status find_level_page(struct ssd_info *ssd,unsigned int channel,unsigned int ch
         ssd->channel_head[channel].gc_command=gc_node;
         ssd->gc_request++;
     }
-    if (ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[planeB].free_page<(ssd->parameter->page_block*ssd->parameter->block_plane*ssd->parameter->gc_hard_threshold))
+    if ((ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[planeB].free_page<(ssd->parameter->page_block*ssd->parameter->block_plane*ssd->parameter->gc_hard_threshold))
+          || (ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[planeB].unlabeled_block < 1))
     {
         gc_node=(struct gc_operation *)malloc(sizeof(struct gc_operation));
         alloc_assert(gc_node,"gc_node");

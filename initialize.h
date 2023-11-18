@@ -273,6 +273,7 @@ struct plane_info{
     unsigned int ers_invalid;           //记录该plane中擦除失效的块数
     unsigned int active_block;          //if a die has a active block, 该项表示其物理块号
     int can_erase_block;                //记录在一个plane中准备在gc操作中被擦除操作的块,-1表示还没有找到合适的块
+    unsigned int unlabeled_block;
     struct direct_erase *erase_node;    //用来记录可以直接删除的块号,在获取新的ppn时，每当出现invalid_page_num==64时，将其添加到这个指针上，供GC操作时直接删除
     struct blk_info *blk_head;
 };

@@ -169,7 +169,6 @@ int get_requests(struct ssd_info *ssd)
     //sscanf(buffer,"%lld %d %d %d %d",&time_t,&device,&lsn,&size,&ope);
     sscanf(buffer, "%lld %d %d %d %d %d %d %d", 
            &time_t, &device, &lpn, &offset, &size_per_page, &pagesleft, &ope, &hotness);
-    printf("HOTNESS : %d\n", hotness);
     lsn = lpn * ssd->parameter->subpage_page + offset;
     if ((device<0)&&(lpn<0)&&(size<0)&&(ope<0))
     {

@@ -524,13 +524,16 @@ struct ssd_info *get_ppn(struct ssd_info *ssd,unsigned int channel,unsigned int 
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].page_head[page].valid_state=sub->state;
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].page_head[page].free_state=((~(sub->state))&full_page);
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].page_head[page].written_count++;
-    if(ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].hotness == -1)
+    if(ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].hotness == -1) {
       ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].hotness = sub_hotness;
+      ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].unlabeled_block--;
+    }
     ssd->write_flash_count++;
 
     if (ssd->parameter->active_write==0)                                            /*如果没有主动策略，只采用gc_hard_threshold，并且无法中断GC过程*/
     {                                                                               /*如果plane中的free_page的数目少于gc_hard_threshold所设定的阈值就产生gc操作*/
-        if (ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].free_page<(ssd->parameter->page_block*ssd->parameter->block_plane*ssd->parameter->gc_hard_threshold))
+        if ((ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].free_page<(ssd->parameter->page_block*ssd->parameter->block_plane*ssd->parameter->gc_hard_threshold))
+              || (ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].unlabeled_block < 1))
         {
             gc_node=(struct gc_operation *)malloc(sizeof(struct gc_operation));
             alloc_assert(gc_node,"gc_node");
@@ -592,8 +595,10 @@ unsigned int get_ppn_for_gc(struct ssd_info *ssd,unsigned int channel,unsigned i
     ssd->channel_head[channel].chip_head[chip].program_count++;
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].free_page--;
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].page_head[page].written_count++;
-    if(ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].hotness == -1)
+    if(ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].hotness == -1) {
       ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[active_block].hotness = hotness;
+      ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].unlabeled_block--;
+    }
     ssd->write_flash_count++;
 
     return ppn;
@@ -615,6 +620,7 @@ Status erase_operation(struct ssd_info * ssd,unsigned int channel ,unsigned int 
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[block].last_write_page=-1;
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[block].erase_count++;
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[block].hotness = -1;
+    ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].unlabeled_block++;
     for (i=0;i<ssd->parameter->page_block;i++)
     {
         ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[block].page_head[i].free_state=PG_SUB;
@@ -1348,7 +1354,7 @@ unsigned int gc(struct ssd_info *ssd,unsigned int channel, unsigned int flag)
     int flag_direct_erase=1,flag_gc=1,flag_invoke_gc=1;
     unsigned int flag_priority=0;
     struct gc_operation *gc_node=NULL,*gc_p=NULL;
-
+    printf("entered garbage collection\n");
     if (flag==1)                                                                       /*整个ssd都是IDEL的情况*/
     {
         for (i=0;i<ssd->parameter->channel_number;i++)
