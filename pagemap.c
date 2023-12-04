@@ -615,6 +615,7 @@ unsigned int get_ppn_for_gc(struct ssd_info *ssd,unsigned int channel,unsigned i
 Status erase_operation(struct ssd_info * ssd,unsigned int channel ,unsigned int chip ,unsigned int die ,unsigned int plane ,unsigned int block)
 {
     unsigned int i=0;
+    unsigned int block_hotness = ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[block].hotness; 
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[block].free_page_num=ssd->parameter->page_block;
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[block].invalid_page_num=0;
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].blk_head[block].last_write_page=-1;
@@ -631,6 +632,10 @@ Status erase_operation(struct ssd_info * ssd,unsigned int channel ,unsigned int 
     ssd->channel_head[channel].erase_count++;			
     ssd->channel_head[channel].chip_head[chip].erase_count++;
     ssd->channel_head[channel].chip_head[chip].die_head[die].plane_head[plane].free_page+=ssd->parameter->page_block;
+    if(block_hotness == 0) ssd->hc0_erase_count++;
+    else if(block_hotness == 1) ssd->hc1_erase_count++;
+    else if(block_hotness == 2) ssd->hc2_erase_count++;
+    else if(block_hotness == 3) ssd->hc3_erase_count++;
 
     return SUCCESS;
 
@@ -931,6 +936,10 @@ Status move_page(struct ssd_info * ssd, struct local *location, unsigned int * t
         {
             ssd->copy_back_count++;
             ssd->gc_copy_back++;
+            if(page_hotness == 0) ssd->hc0_copyback_count++;
+            else if(page_hotness == 1) ssd->hc1_copyback_count++;
+            else if(page_hotness == 2) ssd->hc2_copyback_count++;
+            else if(page_hotness == 3) ssd->hc3_copyback_count++;
             while (old_ppn%2!=ppn%2)
             {
                 ssd->channel_head[new_location->channel].chip_head[new_location->chip].die_head[new_location->die].plane_head[new_location->plane].blk_head[new_location->block].page_head[new_location->page].free_state=0;
@@ -969,6 +978,10 @@ Status move_page(struct ssd_info * ssd, struct local *location, unsigned int * t
 
                 ssd->copy_back_count++;
                 ssd->gc_copy_back++;
+                if(page_hotness == 0) ssd->hc0_copyback_count++;
+                else if(page_hotness == 1) ssd->hc1_copyback_count++;
+                else if(page_hotness == 2) ssd->hc2_copyback_count++;
+                else if(page_hotness == 3) ssd->hc3_copyback_count++;
             }
         }	
     } 
@@ -1354,7 +1367,7 @@ unsigned int gc(struct ssd_info *ssd,unsigned int channel, unsigned int flag)
     int flag_direct_erase=1,flag_gc=1,flag_invoke_gc=1;
     unsigned int flag_priority=0;
     struct gc_operation *gc_node=NULL,*gc_p=NULL;
-    printf("entered garbage collection\n");
+    ssd->gc_invoke_count++;
     if (flag==1)                                                                       /*整个ssd都是IDEL的情况*/
     {
         for (i=0;i<ssd->parameter->channel_number;i++)

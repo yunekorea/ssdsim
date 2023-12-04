@@ -911,6 +911,10 @@ void statistic_output(struct ssd_info *ssd)
     fprintf(ssd->statisticfile,"                        include the flash write count leaded by read requests\n");
     fprintf(ssd->statisticfile,"the read operation leaded by un-covered update count: %13d\n",ssd->update_read_count);
     fprintf(ssd->statisticfile,"erase count: %13d\n",ssd->erase_count);	  
+    fprintf(ssd->statisticfile,"HC0 erase count: %13d\n", ssd->hc0_erase_count);
+    fprintf(ssd->statisticfile,"HC1 erase count: %13d\n", ssd->hc1_erase_count);
+    fprintf(ssd->statisticfile,"HC2 erase count: %13d\n", ssd->hc2_erase_count);
+    fprintf(ssd->statisticfile,"HC3 erase count: %13d\n", ssd->hc3_erase_count);
     fprintf(ssd->statisticfile,"direct erase count: %13d\n",ssd->direct_erase_count);
     fprintf(ssd->statisticfile,"copy back count: %13d\n",ssd->copy_back_count);
     fprintf(ssd->statisticfile,"multi-plane program count: %13d\n",ssd->m_plane_prog_count);
@@ -919,7 +923,12 @@ void statistic_output(struct ssd_info *ssd)
     fprintf(ssd->statisticfile,"interleave read count: %13d\n",ssd->interleave_read_count);
     fprintf(ssd->statisticfile,"interleave two plane and one program count: %13d\n",ssd->inter_mplane_prog_count);
     fprintf(ssd->statisticfile,"interleave two plane count: %13d\n",ssd->inter_mplane_count);
+    fprintf(ssd->statisticfile,"gc invoke count: %13d\n", ssd->gc_invoke_count);
     fprintf(ssd->statisticfile,"gc copy back count: %13d\n",ssd->gc_copy_back);
+    fprintf(ssd->statisticfile,"HC0 GCB count : %13d\n", ssd->hc0_copyback_count);
+    fprintf(ssd->statisticfile,"HC1 GCB count : %13d\n", ssd->hc1_copyback_count);
+    fprintf(ssd->statisticfile,"HC2 GCB count : %13d\n", ssd->hc2_copyback_count);
+    fprintf(ssd->statisticfile,"HC3 GCB count : %13d\n", ssd->hc3_copyback_count);
     fprintf(ssd->statisticfile,"write flash count: %13d\n",ssd->write_flash_count);
     fprintf(ssd->statisticfile,"waste page count: %13d\n",ssd->waste_page_count);
     fprintf(ssd->statisticfile,"interleave erase count: %13d\n",ssd->interleave_erase_count);

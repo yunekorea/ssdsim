@@ -1,6 +1,6 @@
 # ssdsim linux support
 CFLAGS = \
-				-DDEBUG
+				#-DDEBUG
 
 all:ssd 
 	

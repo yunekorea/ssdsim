@@ -191,6 +191,16 @@ struct ssd_info{
     float ave_write_size;
     unsigned int request_queue_length;
     unsigned int update_read_count;      //记录因为更新操作导致的额外读出操作
+    
+    unsigned long gc_invoke_count;     //increases when gc has been invoked : gc()
+    unsigned long hc0_erase_count;
+    unsigned long hc1_erase_count;
+    unsigned long hc2_erase_count;
+    unsigned long hc3_erase_count;
+    unsigned long hc0_copyback_count;
+    unsigned long hc1_copyback_count;
+    unsigned long hc2_copyback_count;
+    unsigned long hc3_copyback_count;
 
     char parameterfilename[30];
     char tracefilename[30];

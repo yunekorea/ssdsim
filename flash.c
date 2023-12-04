@@ -3207,6 +3207,16 @@ struct ssd_info *un_greed_interleave_copyback(struct ssd_info *ssd,unsigned int 
     {
         ssd->copy_back_count++;
         ssd->copy_back_count++;
+        if(sub1->hotness == 0) ssd->hc0_copyback_count++;
+        else if(sub1->hotness == 1) ssd->hc1_copyback_count++;
+        else if(sub1->hotness == 2) ssd->hc2_copyback_count++;
+        else if(sub1->hotness == 3) ssd->hc3_copyback_count++;
+        
+        if(sub2->hotness == 0) ssd->hc0_copyback_count++;
+        else if(sub2->hotness == 1) ssd->hc1_copyback_count++;         
+        else if(sub2->hotness == 2) ssd->hc2_copyback_count++;
+        else if(sub2->hotness == 3) ssd->hc3_copyback_count++;
+
 
         sub1->current_state=SR_W_TRANSFER;
         sub1->current_time=ssd->current_time;
@@ -3237,6 +3247,11 @@ struct ssd_info *un_greed_interleave_copyback(struct ssd_info *ssd,unsigned int 
     {
         ssd->interleave_count--;
         ssd->copy_back_count++;
+        
+        if(sub1->hotness == 0) ssd->hc0_copyback_count++;
+        else if(sub1->hotness == 1) ssd->hc1_copyback_count++;
+        else if(sub1->hotness == 2) ssd->hc2_copyback_count++;
+        else if(sub1->hotness == 3) ssd->hc3_copyback_count++;
 
         sub1->current_state=SR_W_TRANSFER;
         sub1->current_time=ssd->current_time;
@@ -3260,6 +3275,12 @@ struct ssd_info *un_greed_interleave_copyback(struct ssd_info *ssd,unsigned int 
     {
         ssd->interleave_count--;
         ssd->copy_back_count++;
+
+        if(sub2->hotness == 0) ssd->hc0_copyback_count++;
+        else if(sub2->hotness == 1) ssd->hc1_copyback_count++;         
+        else if(sub2->hotness == 2) ssd->hc2_copyback_count++;
+        else if(sub2->hotness == 3) ssd->hc3_copyback_count++;
+
 
         sub2->current_state=SR_W_TRANSFER;
         sub2->current_time=ssd->current_time;
@@ -3317,6 +3338,11 @@ struct ssd_info *un_greed_copyback(struct ssd_info *ssd,unsigned int channel,uns
     if (old_ppn%2==ppn%2)
     {
         ssd->copy_back_count++;
+        if(sub1->hotness == 0) ssd->hc0_copyback_count++;
+        else if(sub1->hotness == 1) ssd->hc1_copyback_count++;         
+        else if(sub1->hotness == 2) ssd->hc2_copyback_count++;
+        else if(sub1->hotness == 3) ssd->hc3_copyback_count++;
+
         sub1->current_state=SR_W_TRANSFER;
         sub1->current_time=ssd->current_time;
         sub1->next_state=SR_COMPLETE;
